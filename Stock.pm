@@ -11,7 +11,7 @@ use PostScript::Graph::Style;
 use PostScript::Graph::XY;
 use Finance::Shares::Sample;
 
-our $VERSION = '0.05';
+our $VERSION = '0.051';
 
 =head1 NAME
 
