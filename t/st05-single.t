@@ -10,7 +10,7 @@ ok(1);
 my $stk = new PostScript::Graph::Stock();
 ok($stk);
 
-$stk->build_chart("t/single.csv");
+$stk->data_from_file("t/single.csv");
 ok(1);
 
 my $name = "st05-basic";

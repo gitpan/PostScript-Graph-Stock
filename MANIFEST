@@ -12,6 +12,7 @@ t/st01-small.t
 t/st02-stock60.t
 t/st03-egg.t
 t/st04-ARM-L.t
-t/st05-basic.t
+t/st05-single.t
 t/st06-double.t
+t/st07-lines.t
 

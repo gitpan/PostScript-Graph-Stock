@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use Test;
-BEGIN { plan tests => 6 };
+BEGIN { plan tests => 5 };
 use PostScript::File qw(check_file);
 use PostScript::Graph::Stock;
 ok(1);
@@ -10,9 +10,8 @@ ok(1);
 my $stk = new PostScript::Graph::Stock(
 	file => {
 	    landscape => 1,
-	    debug => 2,
+	    debug => 1,
 	    errors => 1,
-	    clip_command => "stroke",
 	    clipping => 1,
 	},
 	date => {
@@ -31,7 +30,6 @@ my $stk = new PostScript::Graph::Stock(
 		mark_max => 8,
 		heavy_color => [1,0,0],
 		mid_color => [0,1,0],
-		#light_color => [0,0,1],
 	    },
 	},
 	volume => {
@@ -45,8 +43,6 @@ my $stk = new PostScript::Graph::Stock(
 ok($stk);
 
 $stk->data_from_file("t/egg.csv");
-ok(1);
-$stk->build_chart();
 ok(1);
 
 my $name = "st03-egg";

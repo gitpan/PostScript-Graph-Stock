@@ -4,10 +4,13 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     'NAME'		=> 'PostScript::Graph::Stock',
     'VERSION_FROM'	=> 'Stock.pm', # finds $VERSION
-    'PREREQ_PM'		=> { PostScript::Graph::Paper => 0.05,
-			     PostScript::File  => 0,
+    'PREREQ_PM'		=> { Text::CSV_XS => 0,
+			     Date::Pcalc => 0,
+			     PostScript::File  => 0.08,
+			     PostScript::Graph::Paper => 0.06,
 			     PostScript::Graph::Style => 0.03,
-			     PostScript::Graph::Key   => 0,
+			     PostScript::Graph::Key   => 0.04,
+			     Finance::Shares::Sample  => 0.01,
 			   },
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005
       (ABSTRACT_FROM => 'Stock.pm', # retrieve abstract from module

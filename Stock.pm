@@ -1,12 +1,17 @@
 package PostScript::Graph::Stock;
 use strict;
 use warnings;
+require Exporter;
 use Text::CSV_XS;
 use Date::Pcalc qw(:all);
 use PostScript::File qw(check_file);
-use PostScript::Graph::Bar;
+use PostScript::Graph::Key;
+use PostScript::Graph::Paper;
+use PostScript::Graph::Style;
+use PostScript::Graph::XY;
+use Finance::Shares::Sample;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =head1 NAME
 
@@ -22,7 +27,7 @@ showing the price and volume data and output as a postscript file for printing (
     use PostScript::Graph::Stock;
 
     my $pgs = new PostScript::Graph::Stock();
-    $pgs->build_chart( 'stock_prices.csv' );
+    $pgs->data_from_file( 'stock_prices.csv' );
     $pgs->output( 'graph' );
 
 =head2 Typical
@@ -33,33 +38,43 @@ add analysis lines to either chart is planned.
     use PostScript::Graph::Stock;
 
     my $pgs = new PostScript::Graph::Stock(
-	heading        => 'MyCompany Shares',
-	price_title    => 'Price in pence',
-	volume_title   => 'Transaction volume',
-	price_percent  => 75,
-	volume_percent => 25,
-	background     => [1, 1, 0.9],
-	show_lines     => 1,
+	heading          => 'MyCompany Shares',
+	price_title      => 'Price in pence',
+	volume_title     => 'Transaction volume',
+	background       => [1, 1, 0.9],
+	show_lines       => 1,
+	price_percent    => 75,
+	analysis_percent => 25,
+	volume_percent   => 25,
+	
 	x_heavy_color  => [0, 0, 0.6],
 	x_heavy_width  => 0.8,
 	x_mid_color    => [0.2, 0.6, 0.8],
 	x_mid_width    => 0.8,
 	x_light_color  => [0.5, 0.5, 1],
 	x_light_width  => 0.25,
+	
 	y_heavy_color  => 0.3,
 	y_heavy_width  => 0.8,
 	y_mid_color    => 0.5,
 	y_mid_width    => 0.8,
 	y_light_color  => 0.7,
 	y_light_width  => 0.25,
-	days           => [qw(- Mon Dien Mitt ...)],
-	months         => [qw(- Jan Feb Mars ...)],
-	dates          => 'weeks',
-	changes_only   => 1,
-	show_weekday   => 1,
-	show_day       => 1,
-	show_month     => 1,
-	show_year      => 1,
+
+	dates => {
+	    days         => [qw(- Mon Dien Mitt ...)],
+	    months       => [qw(- Jan Feb Mars ...)],
+	    by		 => 'weeks',
+	    changes_only => 1,
+	    show_weekday => 1,
+	    show_day     => 1,
+	    show_month   => 1,
+	    show_year    => 1,
+	},
+	
+	analysis_low   => -20,
+	analysis_high  => 35,
+	
 	color          => [1, 0, 0],
 	width          => 1.5,
 	shape          => 'close2',
@@ -67,9 +82,8 @@ add analysis lines to either chart is planned.
 	bar_color      => [0.8, 0.4, 0.15],
 	bar_width      => 0.5,
     );
+    
     $pgs->data_from_file( 'stock_prices.csv' );
-    #$pgs->line_from_file( 'analysis.csv' );
-    $pgs->build_chart();
     $pgs->output( 'graph' );
 
 =head2 All options
@@ -83,6 +97,9 @@ available in each of the modules mentioned.
     my $pgs = new PostScript::Graph::Stock(
 	file   => {
 	    # for PostScript::File
+	},
+	dates  => {
+	    # as 'Typical' above
 	},
 	
 	price  => {
@@ -111,30 +128,22 @@ available in each of the modules mentioned.
 	
 	volume => {
 	    # options for Volume bar chart
-	    layout => {
-		# General proportions, headings
-		# for PostScript::Graph::Paper
-	    },
-	    x_axis => {
-		# All settings for X axis
-		# for PostScript::Graph::Paper
-	    },
-	    y_axis => {
-		# All settings for Y axis
-		# for PostScript::Graph::Paper
-	    },
-	    style  => {
-		# Appearance of volume bars 
-		# for PostScript::Graph::Style
-	    },
-	    key    => {
-		# Settings for Key area if there is one
-		# for PostScript::Graph::Key
-	    },
+	    # as 'price' above
+	},
+
+	analysis => {
+	    # options for Analysis chart
+	    # as 'price' above
 	},
     );
     
-    $pgs->build_chart( 'stock_prices.csv' );
+    $pgs->data_from_file( 'stock_prices.csv' );
+    
+    # build data and style structures
+    $pgs->add_price_line( $data1, $style1, 'One');
+    $pgs->add_analysis_line( $data2, $style2, 'Two');
+    $pgs->add_volume_line( $data3, $style3, 'Three');
+    
     $pgs->output( 'graph' );
 
 =head1 DESCRIPTION
@@ -155,9 +164,9 @@ http://uk.table.finance.yahoo.com/, the second from a query of a Finance::Shares
 
 Options given to the constructor control the appearance of the chart.  The data can be given as a CSV file
 to C<data_from_file> or as an array passed to C<data_from_array>.  It will shortly be possible to superimpose
-linear graphs on the same charts by calling C<line_from_file> or C<line_from_array>.  The chart is comitted to
-postscript format in C<build_chart> and saved to a postscript file with the C<output> function.  This file can be
-either a printable *.ps file or an Encapsulated PostScript file for inclusion elsewhere.
+linear graphs on the same charts by calling C<line_from_file> or C<line_from_array>.  The chart is saved to
+a postscript file with the C<output> function.  This file can be either a printable *.ps file or an Encapsulated
+PostScript file for inclusion elsewhere.
 
 The data is displayed as two charts showing price and volume.  These only appear if there is suitable data:
 only a price chart is shown if the file has no volume data.  The proportion of space allocated for each is
@@ -172,7 +181,9 @@ read beyond 6-9 months.  To help with this, it is possible to simplify the outpu
 
 To show only the closing values for the last day of each week, use these options:
 
-   dates => 'weeks',
+   dates => {
+       by => 'weeks',
+   },
    shape => 'close',
 
 
@@ -251,6 +262,23 @@ This does essentially the same thing except the orange is now a narrow strip ins
        },
    },
 
+=head2 Methods Available
+
+There are three ways stock quotes may be inserted, though only one set is possible at a time.  B<data_from_file>
+reads from a CSV file and has already been introduced.  An array of price data can be passed directly to
+B<data_from_array>.  The third way uses B<data_from_sample> to accept data from a Finance::Shares::Sample object.
+
+B<add_price_line>, B<add_analysis_line> and B<add_volume_line> provide ways of superimposing trend lines on the
+price, analysis and volume charts.  The underlying PostScript::Graph::Paper objects are also available for adding
+shaded areas, for example.
+
+Once the data has been assembled the graph needs to be converted into PostScript code which does the actual drawing.
+The simplest way is just to call B<output> which builds and saves the file in one go.  
+
+Alternatively, several stock graphs may be output to the same PostScript file (on seperate pages).  When each
+graph is ready B<build_graph> is called instead of 'output'.  Finally a call to B<output> saves the multi-page
+document ready for viewing or printing.
+
 =cut
 
 =head1 CONSTRUCTOR
@@ -264,14 +292,23 @@ sub new {
    
     my $o = {};
     bless( $o, $class );
+    $o->{plines} = [];
+    $o->{pseq}   = new PostScript::Graph::Sequence;
+    $o->{vlines} = [];
+    $o->{vseq}   = new PostScript::Graph::Sequence;
+    $o->{alines} = [];
+    $o->{aseq}   = new PostScript::Graph::Sequence;
   
     ## option hashes
+    $o->{od}	  = $opt->{dates} || {};
+    
     $o->{op}      = $opt->{price} || {};
     my $op        = $o->{op};
     $op->{layout} = {} unless (defined $op->{layout});
     $op->{x_axis} = {} unless (defined $op->{x_axis});
     $op->{y_axis} = {} unless (defined $op->{y_axis});
     $op->{style}  = {} unless (defined $op->{style});
+    $op->{key}    = {} unless (defined $op->{key});
     my $opl       = $op->{layout};
     my $opx       = $op->{x_axis};
     my $opy       = $op->{y_axis};
@@ -279,12 +316,23 @@ sub new {
     $ops->{point} = {} unless (defined $ops->{point});
     my $opsp      = $ops->{point};
     
+    $o->{oa}      = $opt->{analysis} || {};
+    my $oa        = $o->{oa};
+    $oa->{layout} = {} unless (defined $oa->{layout});
+    $oa->{x_axis} = {} unless (defined $oa->{x_axis});
+    $oa->{y_axis} = {} unless (defined $oa->{y_axis});
+    $oa->{key}    = {} unless (defined $oa->{key});
+    my $oal       = $oa->{layout};
+    my $oax       = $oa->{x_axis};
+    my $oay       = $oa->{y_axis};
+    
     $o->{ov}      = $opt->{volume} || {};
     my $ov        = $o->{ov};
     $ov->{layout} = {} unless (defined $ov->{layout});
     $ov->{x_axis} = {} unless (defined $ov->{x_axis});
     $ov->{y_axis} = {} unless (defined $ov->{y_axis});
     $ov->{style}  = {} unless (defined $ov->{style});
+    $ov->{key}    = {} unless (defined $ov->{key});
     my $ovl       = $ov->{layout};
     my $ovx       = $ov->{x_axis};
     my $ovy       = $ov->{y_axis};
@@ -292,57 +340,26 @@ sub new {
     $ovs->{bar}   = {} unless (defined $ovs->{bar});
     my $ovsb      = $ovs->{bar};
 
-    ## identify date options
-    $o->{dtype} = defined($opt->{dates}) ? $opt->{dates} : "workdays";
-    my $dtype = $o->{dtype};
-    my ($dsdow, $dsday, $dsmonth, $dsyear);
-    CASE: {
-	if ($dtype eq 'days') {
-	    ($dsdow, $dsday, $dsmonth, $dsyear) = (1, 1, 1, 0);
-	    last CASE;
-	}
-	if ($dtype eq 'workdays') {
-	    ($dsdow, $dsday, $dsmonth, $dsyear) = (1, 1, 1, 0);
-	    last CASE;
-	}
-	if ($dtype eq 'weeks') {
-	    ($dsdow, $dsday, $dsmonth, $dsyear) = (0, 1, 1, 0);
-	    last CASE;
-	}
-	if ($dtype eq 'months') {
-	    ($dsdow, $dsday, $dsmonth, $dsyear) = (0, 0, 1, 1);
-	    last CASE;
-	}
-	# ($dtype eq 'data')
-	    ($dsdow, $dsday, $dsmonth, $dsyear) = (0, 1, 1, 1);
-    }
-    $o->{dsday}   = defined($opt->{show_weekday}) ? $opt->{show_weekday}        : $dsdow;
-    $o->{dsdate}  = defined($opt->{show_day})     ? $opt->{show_day}            : $dsday;
-    $o->{dsmonth} = defined($opt->{show_month})   ? $opt->{show_month}          : $dsmonth;
-    $o->{dsyear}  = defined($opt->{show_year})    ? $opt->{show_year}           : $dsyear;
-    $o->{dsall}   = defined($opt->{changes_only}) ? ($opt->{changes_only} == 0) : 0;
-    
     ## identify file options
     if (defined $opt->{file}) {
 	$o->{of} = $opt->{file};
     }
     
-    ## identify price/volume proportions
-    $o->{pprice}    = $opt->{price_percent};
-    $o->{pvolume}   = $opt->{volume_percent};
-    unless (defined $o->{pprice}) {
-	$o->{pprice} = $opt->{price}{percent} if (defined $opt->{price});
-	$o->{pprice} = 75;
-    }
-    unless (defined $o->{pvolume}) {
-	$o->{pvolume} = $opt->{volume}{percent} if (defined $opt->{volume});
-	$o->{pvolume} = 25;
-    }
-
-    ## convenience options for both price and volume
+    ## identify chart proportions
+    my $pprice    = $opt->{price}{percent}    if (defined $opt->{price});
+    $o->{pprice}  = $opt->{price_percent}     || $pprice  || 75;
+    my $panal     = $opt->{analysis}{percent} if (defined $opt->{analysis});
+    $o->{panal}   = $opt->{analysis_percent}  || $panal   || 0 ;
+    my $pvolume   = $opt->{volume}{percent}   if (defined $opt->{volume});
+    $o->{pvolume} = $opt->{volume_percent}    || $pvolume || 25;
+    my $total       = $o->{pprice} + $o->{panal} + $o->{pvolume};
+    $o->{pprice}   /= $total;
+    $o->{panal}    /= $total;
+    $o->{pvolume}  /= $total;
+    
+    ## convenience options
+    my $smallest    = defined($opt->{smallest})	     ? $opt->{smallest}	     : undef;
     my $heading     = defined($opt->{heading})       ? $opt->{heading}       : "";
-    my $title       = defined($opt->{price_title})   ? $opt->{price_title}   : "Price";
-    my $bartitle    = defined($opt->{volume_title})  ? $opt->{volume_title}  : "Volume";
     my $background  = defined($opt->{background})    ? $opt->{background}    : 1;
     my $showlines   = defined($opt->{show_lines})    ? $opt->{show_lines}    : 0;
     my $color       = defined($opt->{color})         ? $opt->{color}         : 0;
@@ -364,10 +381,8 @@ sub new {
     my $ymidwidth   = defined($opt->{y_mid_width})   ? $opt->{y_mid_width}   : 0.5;
     my $ylightwidth = defined($opt->{y_light_width}) ? $opt->{y_light_width} : 0.25;
 
-    my @days   = qw(- Mon Tue Wed Thu Fri Sat Sun);
-    my @months = qw(- Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
-    $o->{dname}     = defined($opt->{days})          ? $opt->{days}          : \@days;
-    $o->{mname}     = defined($opt->{months})        ? $opt->{months}        : \@months;
+    $o->{dates}     = defined($opt->{dates})	     ? $opt->{dates}{by}     : 'data';
+    $o->{key}	    = defined($opt->{show_key})	     ? $opt->{show_key}	     : 1;
     
     ## identify price options
     if ($o->{pprice}) {
@@ -378,29 +393,50 @@ sub new {
 	$opsp->{shape}      = $shape       unless (defined $opsp->{shape});
 	$opl->{heading}     = $heading     unless (defined $opl->{heading});
 	$opl->{background}  = $background  unless (defined $opl->{background});
+	$opx->{smallest}    = $smallest    unless (defined $opx->{smallest});
 	$opx->{show_lines}  = $showlines   unless (defined $opx->{show_lines});
 	$opx->{heavy_color} = $xheavycol   unless (defined $opx->{heavy_color});
 	$opx->{mid_color}   = $xmidcol     unless (defined $opx->{mid_color});
 	$opx->{light_color} = $xlightcol   unless (defined $opx->{light_color});
-	$opy->{title}       = $title       unless (defined $opy->{title});
+	$opy->{title}       = defined($opt->{price_title})   ? $opt->{price_title}   : "Price";
+	$opy->{smallest}    = $smallest    unless (defined $opy->{smallest});
 	$opy->{heavy_width} = $yheavywidth unless (defined $opy->{heavy_width});
 	$opy->{mid_width}   = $ymidwidth   unless (defined $opy->{mid_width});
 	$opy->{light_width} = $ylightwidth unless (defined $opy->{light_width});
     }
     
-    ## identify volume options
+    ## identify analysis options
+    if ($o->{panal}) {
+	$oal->{heading}     = $heading     unless (defined($oal->{heading}) or $o->{pprice});
+	$oal->{background}  = $background  unless (defined $oal->{background});
+	$oax->{smallest}    = $smallest    unless (defined $oax->{smallest});
+	$oax->{show_lines}  = $showlines   unless (defined $oax->{show_lines});
+	$oax->{heavy_color} = $xheavycol   unless (defined $oax->{heavy_color});
+	$oax->{mid_color}   = $xmidcol     unless (defined $oax->{mid_color});
+	$oax->{light_color} = $xlightcol   unless (defined $oax->{light_color});
+	$oay->{smallest}    = $smallest    unless (defined $oay->{smallest});
+	$oay->{title}       = defined($opt->{analysis_title}) ? $opt->{analysis_title} : "Analysis";
+	$oay->{low}         = defined($opt->{analysis_low})   ? $opt->{analysis_low}   : undef;
+	$oay->{high}        = defined($opt->{analysis_high})  ? $opt->{analysis_high}  : undef;
+	$oay->{heavy_width} = $yheavywidth unless (defined $oay->{heavy_width});
+	$oay->{mid_width}   = $ymidwidth   unless (defined $oay->{mid_width});
+	$oay->{light_width} = $ylightwidth unless (defined $oay->{light_width});
+    }
+     ## identify volume options
     if ($o->{pvolume}) {
 	$ovs->{auto}        = "none";
 	$ovs->{same}        = $outlinesame unless (defined $ovs->{same});
 	$ovsb->{color}      = $barcolor    unless (defined $ovsb->{color});
 	$ovsb->{width}      = $barwidth    unless (defined $ovsb->{width});
-	$ovl->{heading}     = $heading     unless (defined($ovl->{heading}) or $o->{pprice});
+	$ovl->{heading}     = $heading     unless (defined($ovl->{heading}) or $o->{pprice} or $o->{panal});
 	$ovl->{background}  = $background  unless (defined $ovl->{background});
+	$ovx->{smallest}    = $smallest    unless (defined $ovx->{smallest});
 	$ovx->{show_lines}  = $showlines   unless (defined $ovx->{show_lines});
 	$ovx->{heavy_color} = $xheavycol   unless (defined $ovx->{heavy_color});
 	$ovx->{mid_color}   = $xmidcol     unless (defined $ovx->{mid_color});
 	$ovx->{light_color} = $xlightcol   unless (defined $ovx->{light_color});
-	$ovy->{title}       = $bartitle    unless (defined $ovy->{title});
+	$ovy->{smallest}    = $smallest    unless (defined $ovy->{smallest});
+	$ovy->{title}       = defined($opt->{volume_title})  ? $opt->{volume_title}  : "Volume";
 	$ovy->{heavy_width} = $yheavywidth unless (defined $ovy->{heavy_width});
 	$ovy->{mid_width}   = $ymidwidth   unless (defined $ovy->{mid_width});
 	$ovy->{light_width} = $ylightwidth unless (defined $ovy->{light_width});
@@ -432,23 +468,56 @@ three such values is read as holding red, green and blue values - again 1 is the
 
 Other numbers are floating point values in PostScript native units (72 per inch).
     
+=head3 analysis
+
+A sub-hash holding all settings for the analysis chart.  See C<price> below for most of the details.  The
+exception is that the 'style' sub-hash is ignored as no data is presented here.  
+
+This graph is provided for adding momentum analysis or other lines that don't use price or volume scales.  At
+present only one analysis graph is possible, so the Y axis must be chosen to accomodate all the required lines.
+
+=head3 analysis_high
+
+Top of Y axis on the analysis graph.  (Default: undefined)
+
+    Shortcut for:
+    analysis =>{ y_axis =>{ high => ... }}
+
+=head3 analysis_low
+
+Bottom of Y axis on the analysis graph.  (Default: undefined)
+
+    Shortcut for:
+    analysis =>{ y_axis =>{ low => ... }}
+
+=head3 analysis_percent
+
+Percentage of space allocated to the analysis graph.  (Default: 0)
+
+    Shortcut for:
+    analysis =>{ percent ... }
+
 =head3 background
 
 Fill colour for price and volume chart backgrounds.  (Default: 1)
 
-Shortcut for price =>{ layout =>{ background => ... }} and/or volume =>{ layout =>{ background => ... }}.
+    Shortcut for:
+    price =>{ layout =>{ background => ... }}
+    volume =>{ layout =>{ background => ... }}
 
 =head3 bar_color
 
 Sets the colour of the volume bars.  (Defaults to C<color>)
 
-Shortcut for volume =>{ style =>{ point =>{ color => ... }}}.
+    Shortcut for:
+    volume =>{ style =>{ point =>{ color => ... }}}
 
 =head3 bar_width
 
 Sets the width of the volume bar outline.  (Defaults to C<width>)
 
-Shortcut for volume =>{ style =>{ bar =>{ width => ... }}}.
+    Shortcut for:
+    volume =>{ style =>{ bar =>{ width => ... }}}
 
 =cut
 
@@ -458,51 +527,31 @@ By default shapes 'stock2' and 'close2' (see B<shape>) are outlined with the com
 background, making them stand out.  Setting this to 1 makes the outline default to the background colour itself.
 (Default: 0)
 
-=head3 changes_only
-
-The date labels are made up of weekday, day, month and year.  Which sections are shown by default depends on the
-B<dates> setting.  If this is 1, each part is only shown if it has changed from the previous label.  If 0, all the
-selected parts are shown.  (Default: 1)
-
+    Shortcut for:
+    price =>{ style =>{ same => (not ...) }}
+    volume =>{ style =>{ same => (not ...) }}
+    
 =head3 color
 
 Sets the colour of the price marks and/or volume bars.  (Default: 0)
 
-Shortcut for price =>{ style =>{ point =>{ color => ... }}} and/or volume =>{ style =>{ bar =>{ color => ...
-}}}.
+    Shortcut for:
+    price =>{ style =>{ point =>{ color => ... }}}
+    volume =>{ style =>{ bar =>{ color => ... }}}
 
 =head3 dates
 
-This string determines how the dates are distributed across the X axis.
+This is a sub-hash controlling how the X axis is laid out.  See L<prepare_dates> for details.
 
-=over 4
+Example
 
-=item B<data>
+    my $ss = new PostScript::Graph::Stock(
+		dates => {
+		    by => 'weeks',
+		},
+	    );
 
-The dates are those present in the CSV file, but in chronological order.
-
-=item B<days>
-
-Every day between the first and last day in the CSV file is listed, whether there is data for that day or not.
-
-=item B<workdays>
-
-Every day except Saturdays and Sundays.  Occasional holidays are ignored, just showing as days with no data.
-
-=item B<weeks>
-
-Only the data for last trading day of each week is presented.  No attempt is made to take the rest of the week
-into account - those days are just hidden.   If any trading is recorded for that week, the latest day is given; if
-not the last working day is shown, with no data.
-
-=item B<months>
-
-As weeks, but showing the last trading day of each month.
-
-=head3 days
-
-This allows the weekday abbreviations to be presented in a different language.  It should be an array ref
-containing strings.  Monday = 1, so there should probably be a dummy string for 0.  (Defaults to English).
+Not really a shortcut for any specific price or volume settings, but a replacement for various x_axis values.
 
 =head3 file
 
@@ -511,38 +560,16 @@ L<PostScript::File> for details.  Options within this group include the paper si
 features and whether it is an EPS or a normal PostScript file.
 
 Creating the PostScript::File object first has the advantage of allowing more than one chart to be printed
-from the same document.
-
-Example
-
-    use PostScript::Graph::Stock;
-    use PostScript::File;
-    my $pgf = new PostScript::File();
-    
-    my $gs1 = new PostScript::Graph::Stock(
-		    file => pgf,
-		);
-    $gs1->build_chart( 'stock1.csv' );
-   
-    $pgf->newpage();
-    my $gs1 = new PostScript::Graph::Stock(
-		    file => pgf,
-		);
-    $gs1->build_chart( 'stock2.csv' );
-    
-    $pgf->output( 'graph' );
+from the same document.  See L<build_graph>.
 
 =head3 heading
 
-A string which appears centrally above the price chart (or the volume chart if there are no prices).  (Default:
-'')
+A string which appears centrally above the top chart.  (Default: '')
 
-Shortcut for price =>{ layout =>{ heading => ... }} or volume =>{ layout =>{ heading => ... }}. 
-
-=head3 months
-
-This allows the month abbreviations to be presented in a different language.  It should be an array ref
-containing strings.  January = 1, so there should probably be a dummy string for 0.  (Defaults to English).
+    Shortcut for:
+    price =>{ layout =>{ heading => ... }}
+    analysis =>{ layout =>{ heading => ... }}
+    volume =>{ layout =>{ heading => ... }}
 
 =head3 price
 
@@ -592,23 +619,21 @@ See the manpage indicated for the details on what is relevant for each subsectio
 	},
     },
     
-=back
-
 =head3 price_percent
 
-The percentage of paper allocated to the price as opposed to the volume chart.  This is more of a 'rough
+The percentage of paper allocated to the price graph.  This is more of a 'rough
 ratio' rather than a percentage, but it does give some control over the relative sizes.  The price_percent
 value includes the date labels area whereas the volume_percent value does not.  
+
+    Shortcut for:
+    price =>{ percent => ... }
 
 =head3 price_title
 
 A string labelling the Y axis on the price chart.  (Default: '')
 
-Shortcut for price =>{ y_axis =>{ title => ... }}.
-
-=head3 show_day
-
-Show the date of day within the month.  (Default: depends on C<dates>)
+    Shortcut for:
+    price =>{ y_axis =>{ title => ... }}
 
 =head3 shape
 
@@ -621,21 +646,34 @@ Shortcut for price =>{ style =>{ point =>{ shape => ... }}}.  Do NOT use the val
 shapes.  The postscript routines for 'dot', 'diamond' etc. require 2 parameters instead of the 5 used here.  Using
 them would cause the code to fail unpredictably.  See L</POSTSCRIPT CODE> for further details.
 
+    Shortcut for:
+    price =>{ style =>{ point =>{ shape => ... }}}
+
+=head3 show_key
+
+Set to 0 to hide the Key boxes that appear on the left when lines are added over the data.  (Default: 1)
+
 =head3 show_lines
 
 If 1, vertical lines are drawn on the charts.  0 means only horizontal graph lines are visible.  (Default: 0)
 
-=head3 show_month
+    Shortcut for:
+    price =>{ x_axis =>{ show_lines => ... }}
+    analysis =>{ x_axis =>{ show_lines => ... }}
+    volume =>{ x_axis =>{ show_lines => ... }}
 
-Show the month.  (Default: depends on C<dates>)
+=head3 smallest
 
-=head3 show_weekday
+This is the granularity of the axes.  Setting it to a larger value reduces the number of axis marks.  (The default
+depends upon the value given to file =>{ dpi => ... })
 
-Show the day of the week.  (Default: depends on C<dates>)
-
-=head3 show_year
-
-Show the month.  (Default: depends on C<dates>)
+    Shortcut for
+    price =>{ x_axis =>{ smallest => ... }}
+    price =>{ y_axis =>{ smallest => ... }}
+    analysis =>{ x_axis =>{ smallest => ... }}
+    analysis =>{ y_axis =>{ smallest => ... }}
+    volume =>{ x_axis =>{ smallest => ... }}
+    volume =>{ y_axis =>{ smallest => ... }}
 
 =head3 volume
 
@@ -649,80 +687,115 @@ The percentage of paper allocated to the volume as opposed to the price chart.  
 ratio' rather than a percentage, but it does give some control over the relative sizes.  The price_percent
 value includes the date labels area whereas the volume_percent value does not.  
 
+    Shortcut for:
+    volume =>{ percent => ... }
+
 =head3 volume_title
 
 A string labelling the Y axis on the volume chart.  (Default: '')
 
-Shortcut for volume =>{ y_axis =>{ title => ... }}.
+    Shortcut for:
+    volume =>{ y_axis =>{ title => ... }}
 
 =head3 width
 
 Sets the width of lines in the price marks.  (Default: 1.0)
 
-Shortcut for price =>{ style =>{ point =>{ width => ... }}}.
+    Shortcut for:
+    price =>{ style =>{ point =>{ width => ... }}}
 
 =head3 x_heavy_color
 
 The colour of the main vertical lines, if B<show_lines> is set.  (Default: 0.4)
 
-Shortcut for price =>{ x_axis =>{ heavy_color => ... }} and/or volume =>{ x_axis =>{ heavy_color => ... }}.
+    Shortcut for:
+    price =>{ x_axis =>{ heavy_color => ... }}
+    analysis =>{ x_axis =>{ heavy_color => ... }}
+    volume =>{ x_axis =>{ heavy_color => ... }}
 
 =head3 x_heavy_width
 
 The width of the main vertical lines, if B<show_lines> is set.  (Default: 0.75)
 
-Shortcut for price =>{ x_axis =>{ heavy_width => ... }} and/or volume =>{ x_axis =>{ heavy_width => ... }}.
+    Shortcut for:
+    price =>{ x_axis =>{ heavy_width => ... }}
+    analysis =>{ x_axis =>{ heavy_width => ... }}
+    volume =>{ x_axis =>{ heavy_width => ... }}
 
 =head3 x_mid_color
 
 If B<show_lines> is set and some date labels have been supressed, the unlabelled marks have lines of this colour.
 (Default: 0.5)
 
-Shortcut for price =>{ x_axis =>{ mid_color => ... }} and/or volume =>{ x_axis =>{ mid_color => ... }}.
+    Shortcut for:
+    price =>{ x_axis =>{ mid_color => ... }}
+    analysis =>{ x_axis =>{ mid_color => ... }}
+    volume =>{ x_axis =>{ mid_color => ... }}
 
 =head3 x_mid_width
 
 The width of I<mid> lines.  See B<x_mid_color>.  (Default: 0.5)
 
-Shortcut for price =>{ x_axis =>{ mid_width => ... }} and/or volume =>{ x_axis =>{ mid_width => ... }}.
+    Shortcut for:
+    price =>{ x_axis =>{ mid_width => ... }}
+    analysis =>{ x_axis =>{ mid_width => ... }}
+    volume =>{ x_axis =>{ mid_width => ... }}
 
 =head3 y_heavy_color
 
 Colour of major (labelled) lines on the Y axis. (Default: 0.4)
 
-Shortcut for price =>{ y_axis =>{ heavy_color => ... }} and/or volume =>{ y_axis =>{ heavy_color => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ heavy_color => ... }}
+    analysis =>{ y_axis =>{ heavy_color => ... }}
+    volume =>{ y_axis =>{ heavy_color => ... }}
 
 =head3 y_heavy_width
 
 Width of major (labelled) lines on the Y axis.  (Default: 0.75)
 
-Shortcut for price =>{ y_axis =>{ heavy_width => ... }} and/or volume =>{ y_axis =>{ heavy_width => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ heavy_width => ... }}
+    analysis =>{ y_axis =>{ heavy_width => ... }}
+    volume =>{ y_axis =>{ heavy_width => ... }}
 
 =head3 y_mid_color
 
 Colour of intermediate (unlabelled) lines on the Y axis.  (Default: 0.5)
 
-Shortcut for price =>{ y_axis =>{ mid_color => ... }} and/or volume =>{ y_axis =>{ mid_color => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ mid_color => ... }}
+    analysis =>{ y_axis =>{ mid_color => ... }}
+    volume =>{ y_axis =>{ mid_color => ... }}
 
 =head3 y_mid_width
 
 Width of intermediate (unlabelled) lines on the Y axis.  (Default: 0.5)
 
-Shortcut for price =>{ y_axis =>{ mid_width => ... }} and/or volume =>{ y_axis =>{ mid_width => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ mid_width => ... }}
+    analysis =>{ y_axis =>{ mid_width => ... }}
+    volume =>{ y_axis =>{ mid_width => ... }}
 
 =head3 y_light_color
 
 Colour of lightest intermediate (unlabelled) lines on the Y axis.  (Default: 0.6)
 
-Shortcut for price =>{ y_axis =>{ light_color => ... }} and/or volume =>{ y_axis =>{ light_color => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ light_color => ... }}
+    analysis =>{ y_axis =>{ light_color => ... }}
+    volume =>{ y_axis =>{ light_color => ... }}
 
 =head3 y_light_width
 
 Width of lightest intermediate (unlabelled) lines on the Y axis.  (Default: 0.25)
 
-Shortcut for price =>{ y_axis =>{ light_width => ... }} and/or volume =>{ y_axis =>{ light_width => ... }}.
+    Shortcut for:
+    price =>{ y_axis =>{ light_width => ... }}
+    analysis =>{ y_axis =>{ light_width => ... }}
+    volume =>{ y_axis =>{ light_width => ... }}
 
-=head1 OBJECT METHODS
+=head1 PRINCIPAL METHODS
 
 =cut
 
@@ -775,191 +848,11 @@ should be portable.
 sub data_from_array {
     my ($o, $data) = @_;
     die "Array required\nStopped" unless (defined $data);
-
-    ## remove any headings
-    my $number = qr/^\s*[-+]?[0-9.]+(?:[Ee][-+]?[0-9.]+)?\s*$/;
-    unless ($data->[0][1] =~ $number) {
-	my $row = shift(@$data);
-    }
-
-    ## prepare price and volume data
-    my ($dfirst, $dlast, @first, @last);
-    my ($pmin, $pmax, $vmin, $vmax);
-    my (%price, %volume, %dates);
-    foreach my $row (@$data) {
-	my ($date, $open, $high, $low, $close, $volume) = @$row;
-	$volume = $open unless (defined $close);
-	my @ymd = ($date =~ /(\d{4})-(\d{2})-(\d{2})/);
-	unless (@ymd) {
-	    @ymd = Decode_Date_EU($date);
-	    unless (@ymd) {
-		@ymd = Decode_Date_US($date);
-	    }
-	    $date = string_from_ymd(@ymd) if (@ymd);
-	}
-	my ($year, $month, $day) = ymd_from_string($date);
-	if (defined $day) {
-	    $dates{$date}++;
-	    my $d = Date_to_Days($year, $month, $day);
-	    $dfirst = $d, @first = ($year, $month, $day) if (not defined($dfirst) or $d < $dfirst);
-	    $dlast  = $d, @last  = ($year, $month, $day) if (not defined($dlast)  or $d > $dlast);
-	}
-	if (defined $close) {
-	    $price{$date}  = [ $open, $high, $low, $close ];
-	    $pmin = $open  if (not defined($pmin) or $open < $pmin);
-	    $pmax = $high  if (not defined($pmax) or $high > $pmax);
-	    $pmin = $low   if (not defined($pmin) or $low < $pmin);
-	    $pmin = $close if (not defined($pmin) or $close < $pmin);
-	}
-	if (defined $volume) {
-	    $volume{$date} = $volume;
-	    $vmin = $volume if (not defined($vmin) or $volume < $vmin);
-	    $vmax = $volume if (not defined($vmax) or $volume > $vmax);
-	}
-    }
-    CASE: {
-	if (not defined($pmin) and not defined($vmin)) {
-	    die "No price or volume data\nStopped";
-	}
-	if (not defined($pmin) and     defined($vmin)) {
-	    $o->{pprice} = 0; $o->{pvolume} = 1;
-	    last CASE;
-	}
-	if (    defined($pmin) and not defined($vmin)) {
-	    $o->{pprice} = 1; $o->{pvolume} = 0;
-	    last CASE;
-	}
-	if (    defined($pmin) and     defined($vmin)) {
-	    my $total = $o->{pprice} + $o->{pvolume};
-	    $o->{pprice} = $o->{pprice}/$total;
-	    $o->{pvolume} = $o->{pvolume}/$total;
-	    last CASE;
-	}
-    }
-    $o->{pmin}   = $pmin;
-    $o->{pmax}   = $pmax;
-    $o->{vmin}   = $vmin;
-    $o->{vmax}   = $vmax;
-    #print "pmin=$pmin, pmax=$pmax, vmin=$vmin, vmax=$vmax dfirst=$dfirst dlast=$dlast\n";
-    
-    ## determine number and type of labels
-    my ($x, @labels, @order) = 0;   # $x is index into labels and order arrays
-    my $dtype  = $o->{dtype};
-    my ($endday, $endlabel, $enddate, $knownlabel, $knowndate) = (0);
-    my @prev = (0, 0, 0);
-    my $ldow = 0;
-    my ($lday, $lmonth, $lyear) = @prev;
-    my ($tdow, $tday, $tmonth, $tyear);
-    my $ndays  = Delta_Days(@first, @last);
-    my $labelmax = 0;
-    for (my $i = 0; $i <= $ndays; $i++) {
-	my @ymd     = Add_Delta_Days(@first, $i);
-	my $dow     = Day_of_Week(@ymd);
-	my $weekday = ($dow >= 1 and $dow <= 5);
-	my $date    = string_from_ymd(@ymd);
-	my $known   = $dates{$date};
-	
-	## construct label
-	my ($year, $month, $day) = @ymd;
-	my $label = "";
-	$label .= $o->{dname}[$dow] . " "   if ($o->{dsday} and ($o->{dsall} or ($dow != $ldow)));
-	$label .= $day . " "                if ($o->{dsdate} and ($o->{dsall} or ($day != $lday)));
-	$label .= $o->{mname}[$month] . " " if ($o->{dsmonth} and ($o->{dsall} or ($month != $lmonth)));
-	$label .= $year . " "               if ($o->{dsyear} and ($o->{dsall} or ($year != $lyear)));
-	$label =~ s/\s+$//;
-	$labelmax = length($label) if (length($label) > $labelmax);
-
-	## select dates
-	CASE: {
-	    if ($dtype eq 'day') {
-		if ($known) {
-		    $dates{$date} = $x++; push @order, $date; push @labels, $label; 
-		    $ldow=$dow; $lday=$day; $lmonth=$month; $lyear=$year;
-		} else {
-		    $dates{$date} = $x++; push @order, $date; push @labels, ""; 
-		}
-		$x++;
-		last CASE;
-	    }
-	    if ($dtype eq 'workday') {
-		if ($weekday) {
-		    $dates{$date} = $x++; push @order, $date; push @labels, $label; 
-		    $ldow=$dow; $lday=$day; $lmonth=$month; $lyear=$year;
-		}
-		last CASE;
-	    }
-	    if ($dtype eq 'week') {
-		if ($weekday) {
-		    if ($dow >= $endday) { 
-			if ($known) {
-			    $knowndate = $date; $knownlabel = $label;
-			} else {
-			    $enddate = $date; $endlabel = $label;
-			}
-			$tdow=$dow; $tday=$day; $tmonth=$month; $tyear=$year;
-		    } else { 
-			unless (defined $knowndate) { $knowndate = $enddate; $knownlabel = $endlabel; }
-			unless (defined $enddate) { $enddate = $date; $endlabel = $label; } 
-			$dates{$enddate} = $x++; push @order, $enddate; push @labels, $endlabel;
-			$enddate = undef;
-			$knowndate  = undef;
-			$ldow=$tdow; $lday=$tday; $lmonth=$tmonth; $lyear=$tyear;
-		    }
-		    $endday = $dow;
-		}
-		last CASE;
-	    }
-	    if ($dtype eq 'month') {
-		if ($weekday) {
-		    if ($day >= $endday) {
-			if ($known) {
-			    $knowndate = $date; $knownlabel = $label;
-			} else {
-			    $enddate = $date; $endlabel = $label;
-			}
-			$tdow=$dow; $tday=$day; $tmonth=$month; $tyear=$year;
-		    } else {
-			unless (defined $knowndate) { $knowndate = $enddate; $knownlabel = $endlabel; }
-			unless (defined $knowndate) { $knowndate = $date;    $knownlabel = $label; }
-			$dates{$knowndate} = $x++; push @order, $knowndate; push @labels, $knownlabel;
-			$enddate    = undef;
-			$knowndate  = undef;
-			$ldow=$tdow; $lday=$tday; $lmonth=$tmonth; $lyear=$tyear;
-		    }
-		    $endday = $day;
-		}
-		last CASE;
-	    }
-	    #  ($dtype eq 'data')
-	    if ($known) {
-		$dates{$date} = $x++; push @order, $date; push @labels, $label; 
-		$ldow=$dow; $lday=$day; $lmonth=$month; $lyear=$year;
-	    }
-	}
-    }
-
-    ## finish off
-    if (defined($knowndate) or defined($enddate)) {
-	unless (defined $knowndate) { $knowndate = $enddate; $knownlabel = $endlabel; } 
-	$dates{$knowndate} = $x++; push @order, $knowndate; push @labels, $knownlabel;
-	$labelmax = length($knownlabel) if (length($knownlabel) > $labelmax);
-    }
-    $o->{dates}  = \%dates;
-    $o->{labels} = \@labels;
-    $o->{order}  = \@order;
-    $o->{price}  = \%price;
-    $o->{volume} = \%volume;
-    $o->{lblmax} = $labelmax;
+  
+    my $sample = new Finance::Shares::Sample;
+    $sample->prepare_dates($data, $o->{od});
+    $o->data_from_sample( $sample );
 }
-# $x is bar number, $date is key as given, $label is for printing
-# $o->{labels}[$x]    == $label
-# $o->{order}[$x]     == $date
-# $o->{dates}{$date}  == $x
-# $o->{price}{$date}  == [ $open, $high, $low, $close ]
-# $o->{volume}{$date} == $volume
-# price range is $o->{pmin} to $o->{pmax}
-# volume range is $o->{vmin} to $o->{vmax}
-# $o->{lblmax} is length of longest label
 
 =head2 data_from_array( array_ref )
 
@@ -996,23 +889,222 @@ Finally US dates are tried, picking up the !Yahoo format, Mar-01-99.
 
 =back
 
-The four price values are typically decimals and the volume is usually an integer in the millions.  These are used
-to automatically calculate the vertical axes.
+The four price values are typically decimals and the volume is usually an integer in the millions.
+
+This method identifies the dates used for plotting the data and constructs suitable labels.  See the B<new> option
+L<dates>.  If C<dates> is I<weeks> the average price and volume data for the week is given under the last known
+day.  Average prices are also calculated for I<months>.
 
 =cut
 
-sub build_chart {
-    my ($o, $arg) = @_;
+sub data_from_sample {
+    my ($o, $s) = @_;
+    die "No Finance::Shares::Sample object\nStopped" unless ($s);
+    $o->{sample} = $s;
+
+    ## identify first and last dates
+    my ($dfirst, $dlast, @first, @last);
+    foreach my $date ($s->{dates}) {
+	$dfirst = $date if (not defined($dfirst) or $date < $dfirst);
+	$dlast  = $date if (not defined($dlast)  or $date > $dlast);
+    }
+
+    ## identify price range
+    my ($pmin, $pmax);
+    foreach my $pdata (values %{$s->{price}}) {
+	my ($open, $high, $low, $close) = @$pdata;
+	$pmin = $open  if (not defined($pmin) or $open < $pmin);
+	$pmax = $high  if (not defined($pmax) or $high > $pmax);
+	$pmin = $low   if (not defined($pmin) or $low < $pmin);
+	$pmin = $close if (not defined($pmin) or $close < $pmin);
+    }
+
+    ## identify volume range
+    my ($vmin, $vmax);
+    foreach my $volume (values %{$s->{volume}}) {
+	$vmin = $volume if (not defined($vmin) or $volume < $vmin);
+	$vmax = $volume if (not defined($vmax) or $volume > $vmax);
+    }
     
-    ## handle arg
-    if (defined $arg) {
-	if (ref($arg) =~ /ARRAY/) { 
-	    $o->data_from_array($arg);
-	} else {
-	    $o->data_from_file($arg);
+    ## price:volume proportion
+    CASE: {
+	if (not defined($pmin) and not defined($vmin)) {
+	    die "No price or volume data\nStopped";
+	}
+	if (not defined($pmin) and defined($vmin)) {
+	    $o->{pprice} = 0; $o->{pvolume} = 1;
+	    last CASE;
+	}
+	if (($o->{dates} eq 'months') or (defined($pmin) and not defined($vmin))) {
+	    $o->{pprice} = 1; $o->{pvolume} = 0;
+	    last CASE;
+	}
+	if (defined($pmin) and defined($vmin)) {
+	    my $total = $o->{pprice} + $o->{pvolume};
+	    $o->{pprice} = $o->{pprice}/$total;
+	    $o->{pvolume} = $o->{pvolume}/$total;
+	    last CASE;
 	}
     }
-    die "No price data\nStopped" unless (defined($o->{labels}) and @{$o->{labels}});
+    $o->{pmin}   = $pmin;
+    $o->{pmax}   = $pmax;
+    $o->{vmin}   = $vmin;
+    $o->{vmax}   = $vmax;
+    #print "pmin=$pmin, pmax=$pmax, vmin=$vmin, vmax=$vmax dfirst=$dfirst dlast=$dlast\n";
+}
+
+=head2 data_from_sample( [sample] )
+
+This specialized method uses data held in a Finance::Shares::Sample.  It is
+provided so that graphs may be drawn from data processed by Finance::Share packages.
+
+=cut
+
+sub add_price_line {
+    my ($o, $data, $key, $style) = @_;
+    unless (defined($style) and ref($style) eq 'PostScript::Graph::Style') {
+	$style = { line => {}, point => {} } unless (defined $style);
+	$style->{sequence} = $o->{pseq} unless (defined $style->{sequence});
+	$style = new PostScript::Graph::Style( $style ) 
+    }
+    push @{$o->{plines}}, [ $data, $style, $key ];
+}
+    
+=head2 add_price_line( data, key [, style] )
+
+=over 4
+
+=item C<data>
+
+An array ref indicating a list of points.  Each point has a date and a price value.  It is the callers
+responsibility to check that the data will fit on the price graph.
+
+=item C<key>
+
+A string to appear next to the style in the Key box.
+
+=item C<style>
+
+This can either be a PostScript::Graph::Style object or a hash ref holding options for one.  The line is drawn
+with the resulting style.  The styles for all lines are expected to belong to the same
+PostScript::Graph::Sequence, even if the 'auto' feature is not being used.  This allows only the differences
+between styles to be written to the PostScript file.
+
+=back
+
+Draw a line of one or more segments in given style.  The line is superimposed on the price chart, with the style
+and text added to a Key area on the right.
+
+Example
+
+    my $pgs = new PostScript::Graph::Stock;
+    $pgs->data_from_file('prices.csv');
+   
+    my $data = [
+	    [ '2002-10-18', 462 ],
+	    [ '2002-10-21', 396 ],
+	    [ '2002-10-22', 129 ]
+	];
+    
+    my $style = { 
+	    auto    => 'none',
+	    color   => 1,
+	    line    => {
+		width	=> 2,
+		color	=> [0.7, 0, 0],
+		dashes	=> [5, 5],
+	    },
+	    point   => {
+		size	=> 4,
+		shape	=> 'dot',
+		color	=> [1, 0.3, 0],
+	    },
+	};
+	
+    $pgs->add_price_line( $data, $style, 'Example' );
+    $pgs->output('pricegraph');
+
+=cut
+
+sub add_volume_line {
+    my ($o, $data, $key, $style) = @_;
+    unless (defined($style) and ref($style) eq 'PostScript::Graph::Style') {
+	$style = { line => {}, point => {} } unless (defined $style);
+	$style->{sequence} = $o->{vseq} unless (defined $style->{sequence});
+	$style = new PostScript::Graph::Style( $style ) 
+    }
+    push @{$o->{vlines}}, [ $data, $style, $key ];
+}
+    
+=head2 add_volume_line( data, key [, style] )
+
+=over 4
+
+=item C<data>
+
+An array ref indicating a list of points.  Each point has a date and a volume.  It is the caller's
+responsibility to check that the data will fit on the price graph.
+
+=item C<key>
+
+A string to appear next to the style in the Key box.
+
+=item C<style>
+
+This can either be a PostScript::Graph::Style object or a hash ref holding options for one.  The line is drawn
+with the resulting style.  The styles for all lines are expected to belong to the same
+PostScript::Graph::Sequence, even if the 'auto' feature is not being used.  This allows only the differences
+between styles to be written to the PostScript file.
+
+=back
+
+Draw a line of one or more segments in given style.  The line is superimposed on the volume chart, with the style
+and text added to a Key area on the right.
+
+=cut
+
+sub add_analysis_line {
+    my ($o, $data, $key, $style) = @_;
+    unless (defined($style) and ref($style) eq 'PostScript::Graph::Style') {
+	$style = { line => {}, point => {} } unless (defined $style);
+	$style->{sequence} = $o->{aseq} unless (defined $style->{sequence});
+	$style = new PostScript::Graph::Style( $style ) 
+    }
+    push @{$o->{alines}}, [ $data, $style, $key ];
+}
+    
+=head2 add_analysis_line( data, key [, style] )
+
+=over 4
+
+=item C<data>
+
+An array ref indicating a list of points.  Each point has a date and a volume.  It is the caller's
+responsibility to check that the data will fit on the price graph.
+
+=item C<key>
+
+A string to appear next to the style in the Key box.
+
+=item C<style>
+
+This can either be a PostScript::Graph::Style object or a hash ref holding options for one.  The line is drawn
+with the resulting style.  The styles for all lines are expected to belong to the same
+PostScript::Graph::Sequence, even if the 'auto' feature is not being used.  This allows only the differences
+between styles to be written to the PostScript file.
+
+=back
+
+Draw a line of one or more segments in given style.  The line is superimposed on the volume chart, with the style
+and text added to a Key area on the right. For this to appear, B<new> options C<analysis_percent>, C<analysis_low>
+and C<analysis_high> should have been set somehow.
+
+=cut
+
+sub build_graph {
+    my $o = shift;
+    my $s = $o->{sample};
+    die "No price data\nStopped" unless (defined($s->{labels}) and @{$s->{labels}});
     
     ## ensure there is a File object
     my $of   = $o->{of};
@@ -1026,21 +1118,33 @@ sub build_chart {
 	$of->{errors} = 1 unless (defined $of->{errors});
 	$o->{pf}      = new PostScript::File( $of );
     }
-    $o->ps_functions();
+    PostScript::Graph::Key->ps_functions( $o->{pf} );
+    PostScript::Graph::XY->ps_functions( $o->{pf} );
+    PostScript::Graph::Stock->ps_functions( $o->{pf} );
+    PostScript::Graph::Style->ps_functions( $o->{pf} );
 
     ## option hashes
-    my $op        = $o->{op};
-    my $opl       = $op->{layout};
-    my $opx       = $op->{x_axis};
-    my $opy       = $op->{y_axis};
-    my $ops       = $op->{style};
-    my $opsp      = $ops->{point};
-    my $ov        = $o->{ov};
-    my $ovl       = $ov->{layout};
-    my $ovx       = $ov->{x_axis};
-    my $ovy       = $ov->{y_axis};
-    my $ovs       = $ov->{style};
-    my $ovsb      = $ovs->{bar};
+    my $op   = $o->{op};
+    my $opl  = $op->{layout};
+    my $opx  = $op->{x_axis};
+    my $opy  = $op->{y_axis};
+    my $ops  = $op->{style};
+    my $opk  = $op->{key};	
+    my $opsp = $ops->{point};
+    
+    my $oa   = $o->{oa};
+    my $oal  = $oa->{layout};
+    my $oax  = $oa->{x_axis};
+    my $oay  = $oa->{y_axis};
+    my $oak  = $oa->{key};	
+    
+    my $ov   = $o->{ov};
+    my $ovl  = $ov->{layout};
+    my $ovx  = $ov->{x_axis};
+    my $ovy  = $ov->{y_axis};
+    my $ovs  = $ov->{style};
+    my $ovk  = $ov->{key};	
+    my $ovsb = $ovs->{bar};
 
     ## calculate height available
     my $fontsize;
@@ -1051,26 +1155,134 @@ sub build_chart {
 	$fontsize = $ovx->{font_size} || 10;
     }
     my @pbox = $o->{pf}->get_page_bounding_box();
-    my $label_height = $o->{lblmax} * 0.7 * $fontsize;
+    my $label_height = $s->{lblmax} * 0.7 * $fontsize;
     my $height = $pbox[3] - $pbox[1] - $label_height;
     my $price_height = $height * $o->{pprice};
+    my $anal_height = $height * $o->{panal};
     my $volume_height = $height * $o->{pvolume};
+    my (%pstyles, %astyles, %vstyles);
 
     ## open dictionaries
     $o->{pf}->add_to_page( <<END_INIT );
 	gpaperdict begin
 	gstyledict begin
+	xychartdict begin
 	gstockdict begin
 END_INIT
-
    
+    ## create price key 
+    my $key_width = 0;
+    if ($o->{pprice} and $o->{key} and @{$o->{plines}}) {
+	my $maxlen  = 0;
+	my $maxsize = 0;
+	my $lwidth  = 3;
+	foreach my $line (@{$o->{plines}}) {
+	    my ($data, $style, $key) = @$line;
+	    $pstyles{$style} = $line;
+	    my $lw       = $style->use_line() ? $style->line_outer_width() : 0;
+	    $lwidth      = $lw/2 if ($lw/2 > $lwidth);
+	    my $size     = $style->use_point() ? $style->point_size() + $lwidth : $lwidth;
+	    $maxsize     = $size if ($size > $maxsize);
+	    my $len	 = length($key);
+	    $maxlen	 = $len if ($len > $maxlen);
+	}
+	my $nlines = keys(%pstyles);
+	
+	if (defined $opk->{max_height}) {
+	    $opk->{max_height} = $price_height if ($opk->{max_height} > $price_height);
+	} else {
+	    $opk->{max_height} = $price_height; 
+	}
+	$opk->{num_items}   = $nlines;
+	$opk->{title}	    = 'Price key' unless (defined $opk->{title});
+	my $tsize           = defined($opk->{text_size}) ? $opk->{text_size} : 10;
+	$opk->{text_width}  = $maxlen * $tsize * 0.5;
+	$opk->{icon_width}  = $maxsize * 3;
+	$opk->{icon_height} = $maxsize * 1.5;
+	$opk->{spacing}     = $lwidth;
+	$opk->{file}	    = $o->{pf};
+	$o->{ppk}           = new PostScript::Graph::Key( $opk );
+	$key_width          = $o->{ppk}->width();
+    }
+    
+    ## create analysis key 
+    if ($o->{panal} and $o->{key} and @{$o->{alines}}) {
+	my $maxlen  = 0;
+	my $maxsize = 0;
+	my $lwidth  = 3;
+	foreach my $line (@{$o->{alines}}) {
+	    my ($data, $style, $key) = @$line;
+	    $astyles{$style} = $line;
+	    my $lw       = $style->use_line() ? $style->line_outer_width() : 0;
+	    $lwidth      = $lw/2 if ($lw/2 > $lwidth);
+	    my $size     = $style->use_point() ? $style->point_size() + $lwidth : $lwidth;
+	    $maxsize     = $size if ($size > $maxsize);
+	    my $len	 = length($key);
+	    $maxlen	 = $len if ($len > $maxlen);
+	}
+	my $nlines = keys(%astyles);
+	
+	if (defined $oak->{max_height}) {
+	    $oak->{max_height} = $anal_height if ($oak->{max_height} > $anal_height);
+	} else {
+	    $oak->{max_height} = $anal_height; 
+	}
+	$oak->{num_items}   = $nlines;
+	$oak->{title}	    = 'Analysis key' unless (defined $oak->{title});
+	my $tsize           = defined($oak->{text_size}) ? $oak->{text_size} : 10;
+	$oak->{text_width}  = $maxlen * $tsize * 0.5;
+	$oak->{icon_width}  = $maxsize * 3;
+	$oak->{icon_height} = $maxsize * 1.5;
+	$oak->{spacing}     = $lwidth;
+	$oak->{file}	    = $o->{pf};
+	$o->{pak}           = new PostScript::Graph::Key( $oak );
+	my $akw             = $o->{pak}->width();
+	$key_width          = $akw if ($akw > $key_width);
+    }
+
+    ## create volume key 
+    if ($o->{pvolume} and $o->{key} and @{$o->{vlines}}) {
+	my $maxlen  = 0;
+	my $maxsize = 0;
+	my $lwidth  = 3;
+	foreach my $line (@{$o->{vlines}}) {
+	    my ($data, $style, $key) = @$line;
+	    $vstyles{$style} = $line;
+	    my $lw       = $style->use_line() ? $style->line_outer_width() : 0;
+	    $lwidth      = $lw/2 if ($lw/2 > $lwidth);
+	    my $size     = $style->use_point() ? $style->point_size() + $lwidth : $lwidth;
+	    $maxsize     = $size if ($size > $maxsize);
+	    my $len	 = length($key);
+	    $maxlen	 = $len if ($len > $maxlen);
+	}
+	my $nlines = keys(%vstyles);
+	
+	if (defined $ovk->{max_height}) {
+	    $ovk->{max_height} = $volume_height if ($ovk->{max_height} > $volume_height);
+	} else {
+	    $ovk->{max_height} = $volume_height; 
+	}
+	$ovk->{num_items}   = $nlines;
+	$ovk->{title}	    = 'Volume key' unless (defined $ovk->{title});
+	my $tsize           = defined($ovk->{text_size}) ? $ovk->{text_size} : 10;
+	$ovk->{text_width}  = $maxlen * $tsize * 0.5;
+	$ovk->{icon_width}  = $maxsize * 3;
+	$ovk->{icon_height} = $maxsize * 1.5;
+	$ovk->{spacing}     = $lwidth;
+	$ovk->{file}	    = $o->{pf};
+	$o->{pvk}           = new PostScript::Graph::Key( $ovk );
+	my $vkw             = $o->{pvk}->width();
+	$key_width          = $vkw if ($vkw > $key_width);
+    }
+
     ## create price grid
     if ($o->{pprice}) {
 	$op->{file}            = $o->{pf};
-	$opl->{bottom_edge}    = $pbox[1] + $volume_height;
+	$opl->{key_width}      = $key_width;
+	$opl->{bottom_edge}    = $pbox[1] + $volume_height + $anal_height;
 	$opl->{no_drawing}     = 1;
 	$opx->{draw_fn}        = "xdrawstock";
-	$opx->{labels}         = $o->{labels};
+	$opx->{labels}         = $s->{labels};
 	$opx->{show_lines}     = 1 unless (defined $opx->{show_lines});
 	$opx->{offset}         = 1;
 	$opx->{sub_divisions}  = 2;
@@ -1082,20 +1294,41 @@ END_INIT
 	$o->{pp}               = new PostScript::Graph::Paper( $op );
     }
     
-    ## create volume grid
+    ## create analysis grid
+    if ($o->{panal}) {
+	$oa->{file}                = $o->{pf};
+	if ($o->{pprice}) {
+	    $oal->{heading_height} = 0 unless (defined $oax->{heading_height});
+	    $oax->{mark_max}       = 0 unless (defined $oax->{mark_max});
+	    $oax->{height}         = 5 unless (defined $oax->{height});
+	}
+	$oal->{top_edge}       = $pbox[1] + $volume_height + $anal_height;
+	$oal->{bottom_edge}    = $pbox[1] + $volume_height;
+	$oal->{key_width}      = $key_width;
+	$oal->{no_drawing}     = 1;
+	$oax->{draw_fn}        = "xdrawstock";
+	$oax->{labels}         = $s->{labels};
+	$oax->{show_lines}     = $ov->{show_lines} if (defined $oa->{show_lines});
+	$oax->{show_lines}     = 1 unless (defined $oax->{show_lines});
+	$oax->{offset}         = 1;
+	$oax->{sub_divisions}  = 2;
+	$oax->{center}         = 0;
+	$oay->{label_gap}      = 14;
+	$o->{pa}               = new PostScript::Graph::Paper( $oa );
+    }
+     ## create volume grid
     if ($o->{pvolume}) {
 	$ov->{file}                = $o->{pf};
 	if ($o->{pprice}) {
-	    $ovl->{top_edge}       = $pbox[3] - $price_height - $label_height;
 	    $ovl->{heading_height} = 0 unless (defined $ovx->{heading_height});
 	    $ovx->{mark_max}       = 0 unless (defined $ovx->{mark_max});
 	    $ovx->{height}         = 5 unless (defined $ovx->{height});
-	} else {
-	    $ovl->{top_edge}       = $pbox[3] - $price_height;
 	}
+	$ovl->{top_edge}       = $pbox[1] + $volume_height;
+	$ovl->{key_width}      = $key_width;
 	$ovl->{no_drawing}     = 1;
 	$ovx->{draw_fn}        = "xdrawstock";
-	$ovx->{labels}         = $o->{labels};
+	$ovx->{labels}         = $s->{labels};
 	$ovx->{show_lines}     = $ov->{show_lines} if (defined $ov->{show_lines});
 	$ovx->{show_lines}     = 1 unless (defined $ovx->{show_lines});
 	$ovx->{offset}         = 1;
@@ -1104,16 +1337,17 @@ END_INIT
 	$ovy->{low}            = $o->{vmin};
 	$ovy->{high}           = $o->{vmax};
 	$ovy->{label_gap}      = 14;
-	$o->{vp}               = new PostScript::Graph::Paper( $ov );
+	$o->{pv}               = new PostScript::Graph::Paper( $ov );
     }
-    
-    ## prepare labels within space available
+   
+    ## prepare labels and draw grids
     my $pp = $o->{pp};
-    my $vp = $o->{vp};
-    my $space = $pp ? $pp->x_axis_font_size()/2 : $vp->x_axis_font_size()/2;
-    my $step  = $pp ? $pp->x_axis_mark_gap()    : $vp->x_axis_mark_gap();
+    my $pa = $o->{pa};
+    my $pv = $o->{pv};
+    my $space = $pp ? $pp->x_axis_font_size()/2 : $pv->x_axis_font_size()/2;
+    my $step  = $pp ? $pp->x_axis_mark_gap()    : $pv->x_axis_mark_gap();
     my $taken = $space;
-    my $plabels = $o->{labels};
+    my $plabels = $s->{labels};
     my $vlabels = [];
     for (my $x = 0; $x <= $#$plabels; $x++) {
 	$taken += $step;
@@ -1130,13 +1364,17 @@ END_INIT
 	$pp->x_axis_labels( $plabels );
 	$pp->draw_scales();
     }
+    if ($o->{panal}) {
+	$pa->x_axis_labels( $vlabels );
+	$pa->draw_scales();
+    }
     if ($o->{pvolume}) {
 	if ($o->{pprice}) {
-	    $vp->x_axis_labels( $vlabels );
+	    $pv->x_axis_labels( $vlabels );
 	} else {
-	    $vp->x_axis_labels( $plabels );
+	    $pv->x_axis_labels( $plabels );
 	}
-	$vp->draw_scales();
+	$pv->draw_scales();
     }
 
     ## add price marks
@@ -1144,13 +1382,15 @@ END_INIT
 	my $pstyle = new PostScript::Graph::Style( $ops );
 	$pstyle->background( $o->{pp}->layout_background() );
 	$pstyle->write( $o->{pf} );
-	my $order  = $o->{order};
-	my $prices = $o->{price};
+	my $dates  = $s->{dates};
+	my $prices = $s->{price};
+	my $order  = $s->{order};
 	my $gp     = $o->{pp};
-	for (my $x = 0; $x <= $#{$o->{labels}}; $x++) {
-	    my $psx    = $gp->px( $x );
-	    my $date   = $order->[$x];
+	for (my $d = 0; $d <= $#{$s->{dates}}; $d++) {
+	    my $date   = $dates->[$d];
 	    my $price  = $prices->{$date};
+	    my $x      = $order->{$date};
+	    my $psx    = $gp->px( $x );
 	    if (defined $price) {
 		my $yopen  = $gp->py( $price->[0] );
 		my $yhigh  = $gp->py( $price->[1] );
@@ -1165,15 +1405,17 @@ END_INIT
     if ($o->{pvolume}) {
 	$ovs->{auto}   = "none";
 	my $vstyle = new PostScript::Graph::Style( $ovs );
-	$vstyle->background( $o->{vp}->layout_background() );
+	$vstyle->background( $o->{pv}->layout_background() );
 	$vstyle->write( $o->{pf} );
-	my $vols  = $o->{volume};
-	my $order = $o->{order};
-	for (my $x = 0; $x <= $#{$o->{labels}}; $x++) {
-	    my $date   = $order->[$x];
-	    my $y      = $vols->{$date};
+	my $vols  = $s->{volume};
+	my $dates = $s->{dates};
+	my $order = $s->{order};
+	for (my $d = 0; $d <= $#{$s->{dates}}; $d++) {
+	    my $date = $dates->[$d];
+	    my $x = $order->{$date};
+	    my $y = $vols->{$date};
 	    if (defined $y) {
-		my @bb     = $o->{vp}->vertical_bar_area($x * 2, $y);
+		my @bb     = $o->{pv}->vertical_bar_area($x * 2, $y);
 		my $lwidth = $vstyle->bar_outer_width()/2;
 		$bb[0] += $lwidth;
 		$bb[1] += $lwidth;
@@ -1188,17 +1430,60 @@ END_BAR
 	}
     }
 
+    ## write out lines
+    $o->build_lines( $o->{plines}, \%pstyles, $o->{pp}, $o->{ppk} );
+    $o->build_lines( $o->{alines}, \%astyles, $o->{pa}, $o->{pak} );
+    $o->build_lines( $o->{vlines}, \%vstyles, $o->{pv}, $o->{pvk} );
+
     ## close dictionaries
-    $o->{pf}->add_to_page( "end end end\n" );
+    $o->{pf}->add_to_page( "end end end end\n" );
 }
-# All chart options must be given to new()
 
-=head2 build_chart( [array_ref | file [, dir]] )
+=head2 build_graph
 
-This is the heart of the class which constructs the charts and produces the postscript code to draw them.  If an
-array_ref is passed as the argument, this is given to B<data_from_array>.  Any other arguments are passed to
-B<data_from_file>.  These are just for convenience.  B<build_chart> itself requires that the necessary options have
-been given to B<new> and that it has some stock data to work on.
+This will not need to be called in most circumstances as it is called automatically by B<output>.
+
+However, if more than one graph is being written to the same PostScript::File document, this will need to be
+called directly.  It constructs the PostScript code for the graph without actually saving the file.
+
+Example
+
+    use PostScript::Graph::Stock;
+    use PostScript::File;
+    my $psfile = new PostScript::File();
+    
+	my $gs1 = new PostScript::Graph::Stock(
+			file => $psfile,
+		    );
+	$gs1->data_from_file( 'stock1.csv' );
+	$gs1->build_graph();
+   
+    $psfile->newpage();
+    
+	my $gs2 = new PostScript::Graph::Stock(
+			file => $psfile,
+		    );
+	$gs2->data_from_file( 'stock2.csv' );
+	$gs2->build_graph();
+    
+    $psfile->output( 'graph' );
+
+=cut
+
+sub output {
+    my $o = shift;
+    $o->build_graph() unless (defined $o->{pf});
+    $o->{pf}->output(@_);
+}
+
+=head2 output( file [, dir] )
+
+The charts are constructed and written out to a PostScript file.  A suitable suffix (.ps, .epsi or .epsf) will be
+appended to the file name.
+
+=cut
+
+=head1 ACCESS METHODS
 
 =cut
 
@@ -1212,25 +1497,149 @@ Return the underlying PostScript::File object.
 
 =cut
 
-sub output {
-    shift()->{pf}->output(@_);
+sub price_graph_paper {
+    return shift()->{pp};
 }
 
-=head3 output( file [, dir] )
+=head3 price_graph_paper
 
-A convenience function to output the chart as a file.  See L<PostScript::File/output>.
+Return the PostScript::Graph::Paper object upon which the prices are drawn.
 
 =cut
 
-=head1 POSTSCRIPT CODE
+sub volume_graph_paper {
+    return shift()->{pv};
+}
 
+=head3 volume_graph_paper
+
+Return the PostScript::Graph::Paper object upon which the volume data are drawn.
+
+=cut
+
+sub price_sequence {
+    return shift()->{pseq};
+}
+
+=head2 price_sequence
+
+Return the PostScript::Graph::Sequence object used for the price line styles, allowing the defaults to be
+altered.
+
+=cut
+
+sub volume_sequence {
+    return shift()->{vseq};
+}
+
+=head2 volume_sequence
+
+Return the PostScript::Graph::Sequence object used for the volume styles, allowing the defaults to be
+altered.
+
+=cut
+
+
+### Support methods
+
+sub build_lines {
+    my ($o, $lines, $styles, $paper, $key) = @_;
+    return unless (@$lines);
+    my $s = $o->{sample};
+    
+    $key->build_key($paper) if (defined $key);
+    my ($cmd, $keylines, $keyouter, $keyinner);
+    foreach my $line (@$lines) {
+	my ($data, $style, $key) = @$line;
+	$style->background( $paper->layout_background() );
+	$style->write( $o->{pf} );
+	
+	## construct price point data
+	my $points = "";
+	my $npoints = -1;
+	foreach my $row (@$data) {
+	    my ($date, $y) = @$row;
+	    my $x = $s->{order}{$date} + 0.5;
+	    my $px = $paper->px($x);
+	    my $py = $paper->py($y);
+	    $points = "$px $py " . $points;
+	    $npoints += 2;
+	}
+
+	## prepare code for price points and lines
+	CASE: {
+	    if (    $style->use_point() and     $style->use_line()) {
+		$cmd = "xyboth";
+		$keyouter = "point_outer kpx kpy draw1point";
+		$keylines = "[ kix0 kiy0 kix1 kiy1 ] 3 2 copy line_outer drawxyline line_inner drawxyline";
+		$keyinner = "point_inner kpx kpy draw1point";
+	    }
+	    if (    $style->use_point() and not $style->use_line()) {
+		$cmd = "xypoints";
+		$keyouter = "point_outer kpx kpy draw1point";
+		$keylines = "";
+		$keyinner = "point_inner kpx kpy draw1point";
+	    }
+	    if (not $style->use_point() and     $style->use_line()) {
+		$cmd = "xyline";
+		$keyouter = "";
+		$keylines = "[ kix0 kiy0 kix1 kiy1 ] 3 2 copy line_outer drawxyline line_inner drawxyline";
+		$keyinner = "";
+	    }
+	    if (not $style->use_point() and not $style->use_line()) {
+		$cmd = "";
+		$keyouter = "";
+		$keylines = "";
+		$keyinner = "";
+	    }
+	}
+
+	$o->{pf}->add_to_page( "[ $points ] $npoints $cmd\n" ) if ($cmd);
+    }
+
+    ## make price key entries
+    foreach my $s (keys %$styles) {
+	my ($data, $style, $text) = @{$styles->{$s}};
+	$style->background( $paper->layout_background() );
+	$style->write( $o->{pf} );
+	
+	$key->add_key_item( $text, <<END_PRICE_KEY ) if (defined $key);
+	    2 dict begin
+		/kpx kix0 kix1 add 2 div def
+		/kpy kiy0 kiy1 add 2 div def
+		$keyouter
+		$keylines
+		$keyinner
+	    end
+END_PRICE_KEY
+    }
+}
+## Draw lines on specified graph paper.
+# Called from build_graph.
+
+=head1 CLASS METHODS
+
+The PostScript code is a class method so that it may be available to other classes that don't need a Stock object.
+
+The useful functions in the 'gstockdict' dictionary draw a stock chart mark and a close mark in
+either one or two colours.
+
+   make_stock
+   make_stock2
+   make_close
+   make_close2
+
+The all consume 5 numbers from the stack (even if they aren't all used):
+
+    x yopen ylow yhigh yclose
+   
 =cut
 
 sub ps_functions {
-    my $o = shift;
+    my ($class, $ps) = @_;
 
     my $name = "StockChart";
-    $o->{pf}->add_function( $name, <<END_FUNCTIONS ) unless ($o->{pf}->has_function($name));
+    $ps->add_function( $name, <<END_FUNCTIONS ) unless ($ps->has_function($name));
 	/gstockdict 20 dict def
 	gstockdict begin
 
@@ -1335,15 +1744,26 @@ name.  It should take 5 parameters similar to the code for C<shape => 'stock'> w
     
 =cut
 
-1;
+=head1 BUGS
 
-sub ymd_from_string {
-    my $date = shift;
-    return ($date =~ /(\d{4})-(\d{2})-(\d{2})/);
-}
+This module is quite complex and still in the early stages of testing.  So please report any bugs you find to the
+author.
 
-sub string_from_ymd {
-    return sprintf("%04d-%02d-%02d", @_);
-}
+=head1 AUTHOR
+
+Chris Willmot, chris@willmot.org.uk
+
+=head1 SEE ALSO
+
+L<PostScript::File>, 
+L<PostScript::Graph::Style>,  
+L<PostScript::Graph::Key>, 
+L<PostScript::Graph::Paper>,
+L<PostScript::Graph::XY>, 
+L<PostScript::Graph::Bar>,
+L<Finance::Shares::Sample> and
+L<Finance::Shares::MySQL>.
+
+=cut
 
 1;

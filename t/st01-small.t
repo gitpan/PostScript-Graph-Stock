@@ -8,26 +8,24 @@ use PostScript::Graph::Stock;
 ok(1);
 
 my $stk = new PostScript::Graph::Stock(
-	file => {
+	file	=> {
 	    landscape => 1,
 	    debug => 1,
 	    errors => 1,
-	    clip_command => "stroke",
 	    clipping => 1,
 	},
-	dates => 'months',
-	price => {
+	by	=> 'months',
+	price	=> {
 	    point_width => 2,
 	    point_color => [1, 0.3, 0],
 	},
-	volume => {
+	volume	=> {
 	    bar_color => [0.5, 0.8, 1],
 	},
     );
 ok($stk);
 
 $stk->data_from_file("t/small.csv");
-$stk->build_chart();
 ok(1);
 
 my $name = "st01-small";
