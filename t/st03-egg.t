@@ -2,10 +2,9 @@
 use strict;
 use warnings;
 use Test;
-BEGIN { plan tests => 5 };
+BEGIN { plan tests => 3 };
 use PostScript::File qw(check_file);
 use PostScript::Graph::Stock;
-ok(1);
 
 my $stk = new PostScript::Graph::Stock(
 	file => {
@@ -14,6 +13,7 @@ my $stk = new PostScript::Graph::Stock(
 	    errors => 1,
 	    clipping => 1,
 	},
+	csv  => 't/egg.csv',
 	date => {
 	    by => 'day',
 	    changes => 1,
@@ -41,9 +41,6 @@ my $stk = new PostScript::Graph::Stock(
 	},
     );
 ok($stk);
-
-$stk->data_from_file("t/egg.csv");
-ok(1);
 
 my $name = "st03-egg";
 $stk->output( $name, "test-results" );

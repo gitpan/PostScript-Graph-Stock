@@ -6,7 +6,6 @@ Stock.pm
 t/ARM-L.csv
 t/egg.csv
 t/single.csv
-t/small.csv
 t/stock60.csv
 t/st01-small.t
 t/st02-stock60.t

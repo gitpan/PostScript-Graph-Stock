@@ -2,10 +2,9 @@
 use strict;
 use warnings;
 use Test;
-BEGIN { plan tests => 11 };
+BEGIN { plan tests => 9 };
 use PostScript::File qw(check_file);
 use PostScript::Graph::Stock;
-ok(1);
 
 my $stk = new PostScript::Graph::Stock(
 	file => {
@@ -13,6 +12,7 @@ my $stk = new PostScript::Graph::Stock(
 	    debug => 1,
 	    errors => 1,
 	},
+	csv   => 't/ARM-L.csv',
 	dates => {
 	    by		 => 'days',
 	    changes_only => 0,
@@ -30,19 +30,22 @@ my $stk = new PostScript::Graph::Stock(
 	bgnd_outline => 1,
 	bar_color    => [0,0.5,0.9],
 	bar_width    => 0.5,
-	volume_title => "Contracts exchanged",
-	price_title  => "Price in pence",
 	smallest     => 4,
-	price_percent => 50,
-	analysis_percent => 25,
-	volume_percent => 25,
-	analysis_low => -3,
-	analysis_high => 7,
+	price => {
+	    percent => 50,
+	    title  => "Price in pence",
+	},
+	analysis => {
+	    percent => 25,
+	    low => -3,
+	    high => 7,
+	},
+	volume => {
+	    percent => 25,
+	    title => "Contracts exchanged",
+	},
     );
 ok($stk);
-
-$stk->data_from_file("t/ARM-L.csv");
-ok(1);
 
 my $pdata1 = [
 	[ '2002-03-20', 250 ],

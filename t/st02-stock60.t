@@ -2,19 +2,18 @@
 use strict;
 use warnings;
 use Test;
-BEGIN { plan tests => 5 };
+BEGIN { plan tests => 3 };
 use PostScript::File qw(check_file);
 use PostScript::Graph::Stock;
-ok(1);
 
 my $stk = new PostScript::Graph::Stock(
 	file	=> {
 	    landscape => 1,
-	    debug => 1,
 	    errors => 1,
 	    clipping => 1,
 	},
-	by	=> 'days',
+	dates_by=> 'days',
+	csv	=> 't/stock60.csv',
 	price	=> {
 	    show_lines => 1,
 	    point_width => 1.5,
@@ -22,9 +21,6 @@ my $stk = new PostScript::Graph::Stock(
 	},
     );
 ok($stk);
-
-$stk->data_from_file("t/stock60.csv");
-ok(1);
 
 my $name = "st02-stock60";
 $stk->output( $name, "test-results" );
