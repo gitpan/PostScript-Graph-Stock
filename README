@@ -1,0 +1,53 @@
+PostScript/Graph/Stock version 0.02
+===================================
+
+This is a top level module in the PostScript::Graph series.  It produces graphs
+of stock price performance from CSV files.  It is possible to download suitable
+files direct from finance.yahoo.com for example.
+
+The output files from Finance::Shares::MySQL are also directly compatable.
+
+It would be used as follows:
+    (a) Create a PostScript::Graph::XY object using the defaults or any of over
+	140 options.
+    
+    (b) Use the data_from_file() method to read graph data from a CSV file.
+    
+    (c) Call build_chart() to assemble the postscript code which draws the graph.
+    
+    (d) Use the output() method to save the postscript file.
+
+INSTALLATION
+
+To install this module type the following:
+
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+    PostScript::File
+    PostScript::Graph::Style
+    PostScript::Graph::Paper
+    PostScript::Graph::Key
+
+SEE ALSO
+
+    PostScript::Graph::XY
+    PostScript::Graph::Bar
+    Finance::Shares::MySQL
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2002 Christopher P Willmot.  All rights reserved.
+
+This work is published under the Artistic licence accompanying the Perl
+distribution which may be found at http://www.perl.org.  The existance of this
+work does not imply that it is fit for any purpose implied by the code or
+accompanying documentation.  There is no warranty whatsoever.  Use at your own
+risk.
+

@@ -1,0 +1,17 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+Stock.pm
+t/ARM-L.csv
+t/egg.csv
+t/single.csv
+t/small.csv
+t/stock60.csv
+t/st01-small.t
+t/st02-stock60.t
+t/st03-egg.t
+t/st04-ARM-L.t
+t/st05-basic.t
+t/st06-double.t
+
